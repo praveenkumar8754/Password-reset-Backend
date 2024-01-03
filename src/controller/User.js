@@ -100,68 +100,81 @@ const verifyToken = async(req,res)=>{
 }
 
 const resetPassword = async(req,res)=>{
-      const { email } = req.body;
-
-      const users = await userModel.findOne({email})
-
-      if(!users){
-        return res.status(400).send({
-            message:"User not found"
-        })
-      }
-
-    // create random numder, length is six
-      const token = Math.random().toString(36).slice(-8); // set password as 8 character
-      users.resetPasswordToken = token;
-      users.resetPasswordExpires = Date.now() + 3600000; // Expires time set for an hour
-
-      await users.save();
-
-      const transporter = nodemailer.createTransport({
-        service : "gmail",
-        auth:{
-            user:"sumaiyanisu29@gmail.com",
-            pass:"dvxk nmpy fztw ffty" // app password from the account
-        }
-      })
-
-      const message = {
-        from : "sumaiyanisu29@gmail.com",
-        to : users.email,
-        subject : "Password Reset Request",
-        text : `You are receiving this email because you has requested a password reset for your account. \n\n Please use the following token to reset your password: ${token}\n\n If you didn't request a password reset, please ignore this Email.`
-      }
-
-      transporter.sendMail(message,(err, info)=>{
-        if(err){
-            res.status(400).send({
-                message:"Something went Wrong, Try Again!"
+    const { email } = req.body;
+    try {
+        let users = await userModel.findOne({ email });
+        if(!users){
+            return res.status(404).send({
+                message:"User not Found",
+                error:error.message,
             })
         }
-            res.status(200).send({
-                message:"Password Reset Email Sent" + info.response
+        const createOTP = ()=>{
+            const character = "1234567890";
+            return Array.from({
+                length:4},
+                ()=> character[Math.floor(Math.random()* character.length)]
+            ).join("");
+        }
+
+        const OTP = createOTP();
+        users.resetPasswordOtp = OTP;
+        users.resetPasswordExpires = Date.now() + 3600000;
+
+        await users.save();
+
+        const transporter = nodemailer.createTransport({
+            service:"gmail",
+            auth:{
+                user : process.env.userMailId,
+                pass : process.env.mailPswd,
+                // user:"sumaiyanisu29@gmail.com",
+                // pass:"dvxk nmpy fztw ffty" // app password from the account
+            }
+        })
+
+        const message = {
+            from : "sumaiyanisu29@gmail.com",
+            to : users.email,
+            subject : "Password Reset Request",
+            html: `We received a request for reset your password, Here the OTP is :${OTP}`
+        }
+            
+        await transporter.sendMail(message,(err, info)=>{
+        if(err){
+         res.status(400).send({
+            message:"Something went Wrong, Try Again!"
+            })
+        }
+         res.status(200).send({
+            message:"Password Reset Email Sent" + info.response
             });
-        
+                    
       })
+
+
+    } catch (error) {
+        res.status(500).send({
+            message:"Internal Server Error",
+            error:error.message,
+        })
+    }
 }
 
 const getResetPassword = async(req,res)=>{
-    const { token } = req.params;
-    const { password } = req.body;
-
+try {
+    const { OTP, password } = req.params;
     const users = await userModel.findOne({
-        resetPasswordToken : token,
-        resetPasswordExpires : { $gt: Date.now() },
-    })
-    
+        resetPasswordOtp : OTP,
+        resetPasswordExpires : {$gt: Date.now() },
+    });
     if(!users){
-        return res.status(400).send({
-            message:"Invalid Token",
-            
-        })
+      return res.status(400).send({
+        message: "User not found or the token has expired.",
+        });
     }
 
-    const hashpswd = await Auth.hashPassword(req.body.password)
+    const hashpswd = await Auth.hashPassword(password);
     if(!hashpswd){
         return res.status(500).send({
             message:"Password hashing error"
@@ -177,8 +190,13 @@ const getResetPassword = async(req,res)=>{
         message:"Password Reset Successfully"
     })
 
+} catch (error) {
+    res.status(500).send({
+        message:"Internal Server Error",
+        error:error.message,
+    })
 }
-
+}
 
 export default {
     getEmail,
